@@ -1,0 +1,10 @@
+[package]
+edition = "2021"
+name = "satlike"
+resolver = "2"
+version = "0.1.0"
+
+[dependencies]
+logos = "0.12"
+nom = "7"
+strum = { version = "0.24", features = ["derive"] }
