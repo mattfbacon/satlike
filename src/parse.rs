@@ -4,7 +4,7 @@ use nom::combinator::{all_consuming, map, opt};
 use nom::multi::many0_count;
 use nom::sequence::{delimited, tuple};
 
-use crate::ast::{BinaryOperator, Node, Proposition, UnaryOperator};
+use crate::ast::{BinaryOperator, Node, NodeInner, Proposition};
 use crate::lex::{Token, TokenKind};
 
 pub fn parse(input: &str) -> Node {
@@ -34,7 +34,7 @@ type ParseResult<'a, T> = nom::IResult<&'a [Token], T>;
 
 fn proposition(input: &[Token]) -> ParseResult<'_, Node> {
 	if let Some(Token::Proposition(ch)) = input.first() {
-		Ok((&input[1..], Node::Proposition(Proposition(*ch))))
+		Ok((&input[1..], Proposition(*ch).into()))
 	} else {
 		Err(nom::Err::Error(nom::error::Error::new(
 			input,
@@ -55,11 +55,8 @@ fn node(input: &[Token]) -> ParseResult<'_, Node> {
 		map(
 			tuple((many0_count(TokenKind::Not), layer2)),
 			|(nots, inner)| {
-				if nots % 2 == 1 {
-					Node::UnaryOperation(Box::new((UnaryOperator::Not, inner)))
-				} else {
-					inner
-				}
+				let negated = nots % 2 == 1;
+				inner.negate_if(negated)
 			},
 		)(input)
 	}
@@ -68,7 +65,7 @@ fn node(input: &[Token]) -> ParseResult<'_, Node> {
 		tuple((layer1, opt(tuple((binary_operator, layer1))))),
 		|(left, opt_binary)| {
 			if let Some((binary, right)) = opt_binary {
-				Node::BinaryOperation(Box::new((left, binary, right)))
+				NodeInner::BinaryOperation(Box::new((left, binary, right))).into()
 			} else {
 				left
 			}
@@ -100,75 +97,55 @@ fn binary_operator(input: &[Token]) -> ParseResult<'_, BinaryOperator> {
 #[cfg(test)]
 mod tests {
 	use super::parse;
-	use crate::ast::{BinaryOperator, Node, Proposition, UnaryOperator};
+	use crate::ast::{BinaryOperator, Node, NodeInner, Proposition};
+
+	fn make_prop(proposition: char) -> Node {
+		Proposition(proposition).into()
+	}
+
+	fn make_binop(left: impl Into<Node>, op: BinaryOperator, right: impl Into<Node>) -> Node {
+		NodeInner::BinaryOperation(Box::new((left.into(), op, right.into()))).into()
+	}
 
 	#[test]
 	fn proposition() {
-		assert_eq!(parse("a"), Node::Proposition(Proposition('a')));
+		assert_eq!(parse("a"), Node::from(Proposition('a')));
 	}
 
 	#[test]
 	fn binary_operators() {
 		assert_eq!(
 			parse("a & b"),
-			Node::BinaryOperation(Box::new((
-				Node::Proposition(Proposition('a')),
-				BinaryOperator::And,
-				Node::Proposition(Proposition('b'))
-			)))
+			make_binop(make_prop('a'), BinaryOperator::And, make_prop('b')),
 		);
 		assert_eq!(
 			parse("a | b"),
-			Node::BinaryOperation(Box::new((
-				Node::Proposition(Proposition('a')),
-				BinaryOperator::Or,
-				Node::Proposition(Proposition('b'))
-			)))
+			make_binop(make_prop('a'), BinaryOperator::Or, make_prop('b')),
 		);
 		assert_eq!(
 			parse("a → b"),
-			Node::BinaryOperation(Box::new((
-				Node::Proposition(Proposition('a')),
-				BinaryOperator::Imply,
-				Node::Proposition(Proposition('b'))
-			)))
+			make_binop(make_prop('a'), BinaryOperator::Imply, make_prop('b')),
 		);
 	}
 
 	#[test]
 	fn unary_operators() {
-		assert_eq!(
-			parse("!a"),
-			Node::UnaryOperation(Box::new((
-				UnaryOperator::Not,
-				Node::Proposition(Proposition('a'))
-			)))
-		);
+		assert_eq!(parse("!a"), make_prop('a').negate());
 	}
 
 	#[test]
 	fn mixed() {
 		assert_eq!(
 			parse("(a & (!b | c)) -> !d"),
-			Node::BinaryOperation(Box::new((
-				Node::BinaryOperation(Box::new((
-					Node::Proposition(Proposition('a')),
+			make_binop(
+				make_binop(
+					make_prop('a'),
 					BinaryOperator::And,
-					Node::BinaryOperation(Box::new((
-						Node::UnaryOperation(Box::new((
-							UnaryOperator::Not,
-							Node::Proposition(Proposition('b'))
-						))),
-						BinaryOperator::Or,
-						Node::Proposition(Proposition('c')),
-					))),
-				))),
+					make_binop(make_prop('b').negate(), BinaryOperator::Or, make_prop('c')),
+				),
 				BinaryOperator::Imply,
-				Node::UnaryOperation(Box::new((
-					UnaryOperator::Not,
-					Node::Proposition(Proposition('d'))
-				))),
-			)))
+				make_prop('d').negate(),
+			),
 		);
 	}
 }

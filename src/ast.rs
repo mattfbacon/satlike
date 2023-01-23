@@ -1,11 +1,103 @@
+use std::fmt::{self, Display, Formatter};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Proposition(pub char);
 
 #[derive(Debug, PartialEq, Eq, Hash)]
-pub enum Node {
+pub enum NodeInner {
 	Proposition(Proposition),
-	BinaryOperation(Box<(Self, BinaryOperator, Self)>),
-	UnaryOperation(Box<(UnaryOperator, Self)>),
+	BinaryOperation(Box<(Node, BinaryOperator, Node)>),
+}
+
+impl Display for NodeInner {
+	fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+		match self {
+			Self::Proposition(proposition) => proposition.0.fmt(formatter)?,
+			Self::BinaryOperation(children) => {
+				let (left, op, right) = &**children;
+
+				let left_needs_parens = !left.negated && matches!(left.inner, Self::BinaryOperation(..));
+				if left_needs_parens {
+					formatter.write_str("(")?;
+				}
+				left.fmt(formatter)?;
+				if left_needs_parens {
+					formatter.write_str(")")?;
+				}
+
+				formatter.write_str(" ")?;
+				op.fmt(formatter)?;
+				formatter.write_str(" ")?;
+
+				let right_needs_parens = !right.negated && matches!(right.inner, Self::BinaryOperation(..));
+				if right_needs_parens {
+					formatter.write_str("(")?;
+				}
+				right.fmt(formatter)?;
+				if right_needs_parens {
+					formatter.write_str(")")?;
+				}
+			}
+		}
+		Ok(())
+	}
+}
+
+#[derive(Debug, PartialEq, Eq, Hash)]
+pub struct Node {
+	pub negated: bool,
+	pub inner: NodeInner,
+}
+
+impl Node {
+	pub fn negate(self) -> Self {
+		Self {
+			negated: !self.negated,
+			..self
+		}
+	}
+
+	pub fn negate_if(self, cond: bool) -> Self {
+		Self {
+			negated: self.negated ^ cond,
+			..self
+		}
+	}
+}
+
+impl From<NodeInner> for Node {
+	fn from(inner: NodeInner) -> Self {
+		Self {
+			negated: false,
+			inner,
+		}
+	}
+}
+
+impl From<Proposition> for Node {
+	fn from(proposition: Proposition) -> Self {
+		Self {
+			negated: false,
+			inner: NodeInner::Proposition(proposition),
+		}
+	}
+}
+
+impl Display for Node {
+	fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+		let needs_parens = self.negated && matches!(self.inner, NodeInner::BinaryOperation(..));
+		if self.negated {
+			formatter.write_str("!")?;
+		}
+		if needs_parens {
+			formatter.write_str("(")?;
+		}
+		self.inner.fmt(formatter)?;
+		if needs_parens {
+			formatter.write_str(")")?;
+		}
+		Ok(())
+	}
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -15,7 +107,18 @@ pub enum BinaryOperator {
 	Imply,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum UnaryOperator {
-	Not,
+impl BinaryOperator {
+	fn repr(self) -> &'static str {
+		match self {
+			Self::And => "&",
+			Self::Or => "|",
+			Self::Imply => "->",
+		}
+	}
+}
+
+impl Display for BinaryOperator {
+	fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+		formatter.write_str(self.repr())
+	}
 }

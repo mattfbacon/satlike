@@ -42,6 +42,10 @@ fn main() {
 	let valid = solve::solve(premises, deduction);
 	println!(
 		"the deduction is {}.",
-		if valid { "valid" } else { "invalid" }
+		match valid {
+			Ok(true) => "valid",
+			Ok(false) => "invalid",
+			Err(self::solve::Unsolvable) => "indeterminate",
+		}
 	);
 }
