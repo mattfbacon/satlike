@@ -119,6 +119,15 @@ mod tests {
 	use super::{make_binary, parse, BinaryOperator};
 	use crate::ast::{Node, Proposition};
 
+	impl Node {
+		fn negate(self) -> Self {
+			Self {
+				negated: !self.negated,
+				..self
+			}
+		}
+	}
+
 	fn make_prop(proposition: char) -> Node {
 		Proposition(proposition).into()
 	}

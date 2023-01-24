@@ -48,13 +48,6 @@ pub struct Node {
 }
 
 impl Node {
-	pub fn negate(self) -> Self {
-		Self {
-			negated: !self.negated,
-			..self
-		}
-	}
-
 	pub fn negate_if(self, cond: bool) -> Self {
 		Self {
 			negated: self.negated ^ cond,
