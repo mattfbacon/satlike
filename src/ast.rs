@@ -6,17 +6,17 @@ pub struct Proposition(pub char);
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub enum NodeInner {
 	Proposition(Proposition),
-	BinaryOperation(Box<(Node, BinaryOperator, Node)>),
+	Nand(Box<[Node; 2]>),
 }
 
 impl Display for NodeInner {
 	fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
 		match self {
 			Self::Proposition(proposition) => proposition.0.fmt(formatter)?,
-			Self::BinaryOperation(children) => {
-				let (left, op, right) = &**children;
+			Self::Nand(children) => {
+				let [left, right] = &**children;
 
-				let left_needs_parens = !left.negated && matches!(left.inner, Self::BinaryOperation(..));
+				let left_needs_parens = !left.negated && matches!(left.inner, Self::Nand(..));
 				if left_needs_parens {
 					formatter.write_str("(")?;
 				}
@@ -25,11 +25,9 @@ impl Display for NodeInner {
 					formatter.write_str(")")?;
 				}
 
-				formatter.write_str(" ")?;
-				op.fmt(formatter)?;
-				formatter.write_str(" ")?;
+				formatter.write_str(" ↑ ")?;
 
-				let right_needs_parens = !right.negated && matches!(right.inner, Self::BinaryOperation(..));
+				let right_needs_parens = !right.negated && matches!(right.inner, Self::Nand(..));
 				if right_needs_parens {
 					formatter.write_str("(")?;
 				}
@@ -85,7 +83,7 @@ impl From<Proposition> for Node {
 
 impl Display for Node {
 	fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
-		let needs_parens = self.negated && matches!(self.inner, NodeInner::BinaryOperation(..));
+		let needs_parens = self.negated && matches!(self.inner, NodeInner::Nand(..));
 		if self.negated {
 			formatter.write_str("!")?;
 		}
@@ -97,28 +95,5 @@ impl Display for Node {
 			formatter.write_str(")")?;
 		}
 		Ok(())
-	}
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum BinaryOperator {
-	And,
-	Or,
-	Imply,
-}
-
-impl BinaryOperator {
-	fn repr(self) -> &'static str {
-		match self {
-			Self::And => "&",
-			Self::Or => "|",
-			Self::Imply => "->",
-		}
-	}
-}
-
-impl Display for BinaryOperator {
-	fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
-		formatter.write_str(self.repr())
 	}
 }

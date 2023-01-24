@@ -4,8 +4,15 @@ use nom::combinator::{all_consuming, map, opt};
 use nom::multi::many0_count;
 use nom::sequence::{delimited, tuple};
 
-use crate::ast::{BinaryOperator, Node, NodeInner, Proposition};
+use crate::ast::{Node, NodeInner, Proposition};
 use crate::lex::{Token, TokenKind};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum BinaryOperator {
+	And,
+	Or,
+	Imply,
+}
 
 pub fn parse(input: &str) -> Node {
 	let tokens: Vec<_> = Token::lexer(input).collect();
@@ -65,12 +72,25 @@ fn node(input: &[Token]) -> ParseResult<'_, Node> {
 		tuple((layer1, opt(tuple((binary_operator, layer1))))),
 		|(left, opt_binary)| {
 			if let Some((binary, right)) = opt_binary {
-				NodeInner::BinaryOperation(Box::new((left, binary, right))).into()
+				make_binary(left, binary, right)
 			} else {
 				left
 			}
 		},
 	)(input)
+}
+
+fn make_binary(left: Node, binary: BinaryOperator, right: Node) -> Node {
+	let (left_negated, right_negated, outer_negated) = match binary {
+		BinaryOperator::And => (false, false, true),
+		BinaryOperator::Or => (true, true, false),
+		BinaryOperator::Imply => (false, true, false),
+	};
+	Node::from(NodeInner::Nand(Box::new([
+		left.negate_if(left_negated),
+		right.negate_if(right_negated),
+	])))
+	.negate_if(outer_negated)
 }
 
 fn binary_operator(input: &[Token]) -> ParseResult<'_, BinaryOperator> {
@@ -96,15 +116,11 @@ fn binary_operator(input: &[Token]) -> ParseResult<'_, BinaryOperator> {
 
 #[cfg(test)]
 mod tests {
-	use super::parse;
-	use crate::ast::{BinaryOperator, Node, NodeInner, Proposition};
+	use super::{make_binary, parse, BinaryOperator};
+	use crate::ast::{Node, Proposition};
 
 	fn make_prop(proposition: char) -> Node {
 		Proposition(proposition).into()
-	}
-
-	fn make_binop(left: impl Into<Node>, op: BinaryOperator, right: impl Into<Node>) -> Node {
-		NodeInner::BinaryOperation(Box::new((left.into(), op, right.into()))).into()
 	}
 
 	#[test]
@@ -116,15 +132,15 @@ mod tests {
 	fn binary_operators() {
 		assert_eq!(
 			parse("a & b"),
-			make_binop(make_prop('a'), BinaryOperator::And, make_prop('b')),
+			make_binary(make_prop('a'), BinaryOperator::And, make_prop('b')),
 		);
 		assert_eq!(
 			parse("a | b"),
-			make_binop(make_prop('a'), BinaryOperator::Or, make_prop('b')),
+			make_binary(make_prop('a'), BinaryOperator::Or, make_prop('b')),
 		);
 		assert_eq!(
 			parse("a → b"),
-			make_binop(make_prop('a'), BinaryOperator::Imply, make_prop('b')),
+			make_binary(make_prop('a'), BinaryOperator::Imply, make_prop('b')),
 		);
 	}
 
@@ -137,11 +153,11 @@ mod tests {
 	fn mixed() {
 		assert_eq!(
 			parse("(a & (!b | c)) -> !d"),
-			make_binop(
-				make_binop(
+			make_binary(
+				make_binary(
 					make_prop('a'),
 					BinaryOperator::And,
-					make_binop(make_prop('b').negate(), BinaryOperator::Or, make_prop('c')),
+					make_binary(make_prop('b').negate(), BinaryOperator::Or, make_prop('c')),
 				),
 				BinaryOperator::Imply,
 				make_prop('d').negate(),

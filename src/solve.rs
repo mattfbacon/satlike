@@ -1,4 +1,4 @@
-use crate::ast::{BinaryOperator, Node, NodeInner, Proposition};
+use crate::ast::{Node, NodeInner, Proposition};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Unsolvable;
@@ -28,42 +28,38 @@ fn simplify_with(premise: &mut Node, trivial: Trivial) -> Option<bool> {
 		NodeInner::Proposition(proposition) => {
 			(*proposition == trivial.proposition).then_some(trivial.truth_value)
 		}
-		NodeInner::BinaryOperation(children) => {
-			let (left, operator, right) = &mut **children;
+		NodeInner::Nand(children) => {
+			enum Action {
+				ReplaceWithLeft,
+				ReplaceWithRight,
+				DoNothing,
+			}
+
+			let [left, right] = &mut **children;
 			let left_value = simplify_with(left, trivial);
 			let right_value = simplify_with(right, trivial);
-			#[allow(clippy::unnested_or_patterns)] // clarity
-			match (operator, left_value, right_value) {
-				// simplified to F
-				(BinaryOperator::And, Some(false), _) | (BinaryOperator::And, _, Some(false)) => {
-					Some(false)
-				}
-				// simplified to T
-				(BinaryOperator::Or, Some(true), _)
-				| (BinaryOperator::Or, _, Some(true))
-				| (BinaryOperator::Imply, Some(false), _)
-				| (BinaryOperator::Imply, _, Some(true)) => Some(true),
-				// simplified to the RHS
-				(BinaryOperator::And, Some(true), _)
-				| (BinaryOperator::Or, Some(false), _)
-				| (BinaryOperator::Imply, Some(true), _) => {
-					*premise = std::mem::replace(right, dummy()).negate_if(premise.negated);
+			let value_or_action = match (left_value, right_value) {
+				(Some(left), Some(right)) => Ok(!(left && right)),
+				(Some(false), _) | (_, Some(false)) => Ok(true),
+				(Some(true), _) => Err(Action::ReplaceWithRight),
+				(_, Some(true)) => Err(Action::ReplaceWithLeft),
+				(None, None) => Err(Action::DoNothing),
+			};
+			match value_or_action {
+				Ok(value) => Some(value),
+				Err(action) => {
+					let replace_with = match action {
+						Action::ReplaceWithLeft => Some(std::mem::replace(left, dummy())),
+						Action::ReplaceWithRight => Some(std::mem::replace(right, dummy())),
+						Action::DoNothing => None,
+					};
+					if let Some(replace_with) = replace_with {
+						// negated due to NAND
+						let outer_negated = !premise.negated;
+						*premise = replace_with.negate_if(outer_negated);
+					}
 					None
 				}
-				// simplified to the LHS
-				(BinaryOperator::And, _, Some(true)) | (BinaryOperator::Or, _, Some(false)) => {
-					*premise = std::mem::replace(left, dummy()).negate_if(premise.negated);
-					None
-				}
-				// simplified to the negation of the LHS
-				(BinaryOperator::Imply, _, Some(false)) => {
-					*premise = std::mem::replace(left, dummy())
-						.negate()
-						.negate_if(premise.negated);
-					None
-				}
-				// cannot be simplified
-				(_, None, None) => None,
 			}
 		}
 	}
@@ -82,7 +78,7 @@ fn as_trivial(premise: &Node) -> Option<Trivial> {
 			proposition: *proposition,
 			truth_value: true,
 		}),
-		NodeInner::BinaryOperation(..) => None,
+		NodeInner::Nand(..) => None,
 	}
 	.map(|trivial| Trivial {
 		truth_value: trivial.truth_value ^ premise.negated,
